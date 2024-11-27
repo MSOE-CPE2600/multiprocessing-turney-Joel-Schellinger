@@ -1,11 +1,14 @@
-/// 
-//  mandel.c
-//  Based on example code found here:
-//  https://users.cs.fiu.edu/~cpoellab/teaching/cop4610_fall22/project3.html
-//
-//  Converted to use jpg instead of BMP and other minor changes
-//  
-///
+/**
+ * @file mandelmovie.c
+ * @brief Creates a movie of zooming in on 
+ * a point in the mandelbrot series
+ * Compile Instructions: make
+ * Course: CPE2600
+ * Section: 111
+ * Assignment: Vector operations
+ * @author Joel Schellinger
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -16,7 +19,9 @@
 #include <math.h>
 #include <stdbool.h>
 
+// Macros
 #define FILE_NAME_LEN 14 // "mandel###.jpg" 12 chars +1 for \0
+
 // local routines
 static int iteration_to_color( int i, int max );
 static int iterations_at_point( double x, double y, int max );
@@ -35,17 +40,18 @@ int main( int argc, char *argv[] )
 	double ycenter =  0.4580605576199168;
 	double zoom_factor = 0.9;
 	double initial_scale = 10;
-	const int image_width = 1000;
-	const int image_height = 1000;
-	const int max = 1000;
 	int n_procs = 1;
 	int n_imgs = 50;
 	bool build_img = false;
 
+	// The following should not be changed
+	const int image_width = 1000;
+	const int image_height = 1000;
+	const int max = 1000;
+
 	// For each command line argument given,
 	// override the appropriate configuration value.
-
-	while((c = getopt(argc,argv,"hbx:y:z:p:i:"))!=-1) {
+	while((c = getopt(argc,argv,"h b x:y:z:p:i:"))!=-1) {
 		switch(c) 
 		{
 			case 'x':
@@ -73,31 +79,45 @@ int main( int argc, char *argv[] )
 		}
 	}
 
+	// Create the number of processes that the user asked for
 	for(int i = 0; i < n_procs; i++) {
 		pid_t pid = fork();
 		if (pid < 0) {
 			perror("fork failed");
 			exit(EXIT_FAILURE);
 		} else if (pid == 0) {
+
+			// Start at the process number
 			int start = i;
+
+			// Ends when there are no more images to process
             int end = n_imgs;
 			
+			// Increment by the number of processes
 			for (int j = start; j < end; j += n_procs) {
-				char outfile[FILE_NAME_LEN] = "";
+				// Provide some form of progress for the user
 				printf("Processing img %d in process %d\n", j, i);
+
+				// Make the output file name
+				char outfile[FILE_NAME_LEN] = "";
 				snprintf(outfile, FILE_NAME_LEN, "mandel%03d.jpg", j); // Store i in a str
-				// Create a raw image of the appropriate size.
+
+				// The scale gets scaled by the zoom factor every iteration
+				// The initial scale is multiplied by zoom factor j times
+				// More simply zoom_factor to the power of j times initial scale
 				double xscale = initial_scale*pow(zoom_factor, j);
 				double yscale = xscale / image_width * image_height;
 				imgRawImage* img = initRawImage(image_width,image_height);
 
-				// Fill it with a black
+				// Fill it with a black image
 				setImageCOLOR(img,0);
 
 				// Compute the Mandelbrot image
 				compute_image(img,xcenter-xscale/2,xcenter+xscale/2,ycenter-yscale/2,ycenter+yscale/2,max);
+				
 				// Save the image in the stated file.
 				storeJpegImageFile(img, outfile);
+				
 				// free the mallocs
 				freeRawImage(img);
 			}
@@ -109,7 +129,9 @@ int main( int argc, char *argv[] )
     for (int i = 0; i < n_procs; i++) {
         wait(NULL);
     }
-	if (!build_img) { // Exit if not building image
+
+	// Exit if not building image
+	if (!build_img) { 
 		exit(EXIT_SUCCESS);
 	}
 
@@ -210,15 +232,15 @@ void show_help()
 {
 	printf("Use: mandelmovie [options]\n");
 	printf("Where options are:\n");
-	printf("-x <coord>  X coordinate of image center point. (default=0)\n");
-	printf("-y <coord>  Y coordinate of image center point. (default=0)\n");
-	printf("-z <zoom> 	Zoom factor to scale down each image by (default=4)\n");
-	printf("-W <pixels> Width of the image in pixels. (default=1000)\n");
-	printf("-H <pixels> Height of the image in pixels. (default=1000)\n");
-	printf("-o <file>   Set output file. (default=mandel.bmp)\n");
-	printf("-h          Show this help text.\n");
+	printf("-x <coord>  	X coordinate of image center point. (default=0)\n");
+	printf("-y <coord>  	Y coordinate of image center point. (default=0)\n");
+	printf("-z <zoom> 		Zoom factor to scale down each image by (default=0.9)\n");
+	printf("-p <processes> 	Set number of processes. (default=1)\n");
+	printf("-i <images> 	Set the number of images for the video. (default=50)\n");
+	printf("-b			  	Build and show the movie.\n");
+	printf("-h          	Show this help text.\n");
 	printf("\nSome examples are:\n");
-	printf("mandel -x -0.5 -y -0.5 -s 0.2\n");
-	printf("mandel -x -.38 -y -.665 -s .05 -m 100\n");
-	printf("mandel -x 0.286932 -y 0.014287 -s .0005 -m 1000\n\n");
+	printf("mandelmovie -x -0.5 -y -0.5 -z 0.75\n");
+	printf("mandelmovie -x -.38 -y -.665 -p 5 -b\n");
+	printf("mandelmovie -x 0.286932 -y 0.014287 -z .9 -p 20 -i 200\n\n");
 }
