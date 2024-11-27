@@ -4,3 +4,4 @@ mandel
 mandelmovie
 *.jpg
 *.mpg
+.vscode/
