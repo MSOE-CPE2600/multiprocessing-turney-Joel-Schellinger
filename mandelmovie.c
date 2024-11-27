@@ -11,13 +11,16 @@
 #include <unistd.h>
 #include "jpegrw.h"
 #include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <math.h>
+#include <stdbool.h>
 
-#define FILE_NAME_LEN 13 // "mandel##.jpg" 12 chars +1 for \0
-#define NUM_IMGS 50
+#define FILE_NAME_LEN 14 // "mandel###.jpg" 12 chars +1 for \0
 // local routines
 static int iteration_to_color( int i, int max );
 static int iterations_at_point( double x, double y, int max );
-static void compute_image( imgRawImage *img, double xmin, double xmax,
+static void compute_image(imgRawImage *img, double xmin, double xmax,
 									double ymin, double ymax, int max );
 static void show_help();
 
@@ -31,45 +34,99 @@ int main( int argc, char *argv[] )
 	double xcenter = -0.6702094071878258;
 	double ycenter =  0.4580605576199168;
 	double zoom_factor = 0.9;
-	double xscale = 10;
-	double yscale = 0; // calc later
-	int    image_width = 1000;
-	int    image_height = 1000;
-	int    max = 1000;
-	int n_procs;
-	int n_imgs;
+	double initial_scale = 10;
+	const int image_width = 1000;
+	const int image_height = 1000;
+	const int max = 1000;
+	int n_procs = 1;
+	int n_imgs = 50;
+	bool build_img = false;
 
 	// For each command line argument given,
 	// override the appropriate configuration value.
 
-	while((c = getopt(argc,argv,"p"))!=-1) {
+	while((c = getopt(argc,argv,"hbx:y:z:p:i:"))!=-1) {
 		switch(c) 
 		{
+			case 'x':
+				xcenter = atof(optarg);
+				break;
+			case 'y':
+				ycenter = atof(optarg);
+				break;
+			case 'z':
+				zoom_factor = atof(optarg);
+				break;
 			case 'p':
 				n_procs = atoi(optarg);
+				break;
+			case 'h':
+				show_help();
+				exit(EXIT_SUCCESS);
+				break;
+			case 'b':
+				build_img = true;
+				break;
+			case 'i':
+				n_imgs = atoi(optarg);
 				break;
 		}
 	}
 
-	// Calculate y scale based on x scale (settable) and image sizes in X and Y (settable)
+	for(int i = 0; i < n_procs; i++) {
+		pid_t pid = fork();
+		if (pid < 0) {
+			perror("fork failed");
+			exit(EXIT_FAILURE);
+		} else if (pid == 0) {
+			int start = i;
+            int end = n_imgs;
+			
+			for (int j = start; j < end; j += n_procs) {
+				char outfile[FILE_NAME_LEN] = "";
+				printf("Processing img %d in process %d\n", j, i);
+				snprintf(outfile, FILE_NAME_LEN, "mandel%03d.jpg", j); // Store i in a str
+				// Create a raw image of the appropriate size.
+				double xscale = initial_scale*pow(zoom_factor, j);
+				double yscale = xscale / image_width * image_height;
+				imgRawImage* img = initRawImage(image_width,image_height);
 
-	for (int i = 0; i < NUM_IMGS; i++) {
-		char outfile[FILE_NAME_LEN] = "";
-		snprintf(outfile, FILE_NAME_LEN, "mandel%02d.jpg", i); // Store i in a str
-		// Create a raw image of the appropriate size.
-		xscale *= zoom_factor;
-		yscale = xscale / image_width * image_height;
-		imgRawImage* img = initRawImage(image_width,image_height);
+				// Fill it with a black
+				setImageCOLOR(img,0);
 
-		// Fill it with a black
-		setImageCOLOR(img,0);
+				// Compute the Mandelbrot image
+				compute_image(img,xcenter-xscale/2,xcenter+xscale/2,ycenter-yscale/2,ycenter+yscale/2,max);
+				// Save the image in the stated file.
+				storeJpegImageFile(img, outfile);
+				// free the mallocs
+				freeRawImage(img);
+			}
+			exit(0);
+		}
+	}
 
-		// Compute the Mandelbrot image
-		compute_image(img,xcenter-xscale/2,xcenter+xscale/2,ycenter-yscale/2,ycenter+yscale/2,max);
-		// Save the image in the stated file.
-		storeJpegImageFile(img, outfile);
-		// free the mallocs
-		freeRawImage(img);
+	// Parent process waits for all children
+    for (int i = 0; i < n_procs; i++) {
+        wait(NULL);
+    }
+	if (!build_img) { // Exit if not building image
+		exit(EXIT_SUCCESS);
+	}
+
+	// Build the image
+	pid_t pid = fork();
+	if (pid == 0) {
+		// Child process: execute ffmpeg
+		execl("/usr/bin/ffmpeg", "ffmpeg", "-i", "mandel%03d.jpg", "mandel.mpg", NULL);
+		perror("execl failed");
+		exit(EXIT_FAILURE);
+	} else if (pid > 0) {
+		// Parent process: wait for the child to complete
+		wait(NULL);
+		execl("/usr/bin/ffplay", "ffplay", "mandel.mpg", NULL);
+		perror("execl failed");
+	} else {
+		perror("fork failed");
 	}
 
 	return 0;
@@ -151,12 +208,11 @@ int iteration_to_color( int iters, int max )
 // Show help message
 void show_help()
 {
-	printf("Use: mandel [options]\n");
+	printf("Use: mandelmovie [options]\n");
 	printf("Where options are:\n");
-	printf("-m <max>    The maximum number of iterations per point. (default=1000)\n");
 	printf("-x <coord>  X coordinate of image center point. (default=0)\n");
 	printf("-y <coord>  Y coordinate of image center point. (default=0)\n");
-	printf("-s <scale>  Scale of the image in Mandlebrot coordinates (X-axis). (default=4)\n");
+	printf("-z <zoom> 	Zoom factor to scale down each image by (default=4)\n");
 	printf("-W <pixels> Width of the image in pixels. (default=1000)\n");
 	printf("-H <pixels> Height of the image in pixels. (default=1000)\n");
 	printf("-o <file>   Set output file. (default=mandel.bmp)\n");
