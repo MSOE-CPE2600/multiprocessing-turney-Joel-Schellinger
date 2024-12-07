@@ -18,6 +18,9 @@
 #include <sys/wait.h>
 #include <math.h>
 #include <stdbool.h>
+#include <pthread.h>
+#include <errno.h>
+#include <assert.h>
 
 // Macros
 #define FILE_NAME_LEN 14 // "mandel###.jpg" 12 chars +1 for \0
@@ -26,8 +29,21 @@
 static int iteration_to_color( int i, int max );
 static int iterations_at_point( double x, double y, int max );
 static void compute_image(imgRawImage *img, double xmin, double xmax,
-									double ymin, double ymax, int max );
+									double ymin, double ymax, int max, int n_threads);
 static void show_help();
+
+typedef struct {
+	imgRawImage *img;
+	int y_start;
+	int y_end;
+	double xmin;
+	double xmax;
+	double ymin;
+	double ymax;
+	int max;
+}mandel_data;
+
+static void* compute_section(void* arg);
 
 
 int main( int argc, char *argv[] )
@@ -42,6 +58,7 @@ int main( int argc, char *argv[] )
 	double initial_scale = 10;
 	int n_procs = 1;
 	int n_imgs = 50;
+	int n_threads = 1;
 	bool build_img = false;
 
 	// The following should not be changed
@@ -51,7 +68,7 @@ int main( int argc, char *argv[] )
 
 	// For each command line argument given,
 	// override the appropriate configuration value.
-	while((c = getopt(argc,argv,"h b x:y:z:p:i:"))!=-1) {
+	while((c = getopt(argc,argv,"h b x:y:z:p:i:t:"))!=-1) {
 		switch(c) 
 		{
 			case 'x':
@@ -76,9 +93,11 @@ int main( int argc, char *argv[] )
 			case 'i':
 				n_imgs = atoi(optarg);
 				break;
+			case 't':
+				n_threads = atoi(optarg);
 		}
 	}
-
+	printf("Num imgs: %d\n", n_imgs);
 	// Create the number of processes that the user asked for
 	for(int i = 0; i < n_procs; i++) {
 		pid_t pid = fork();
@@ -113,7 +132,7 @@ int main( int argc, char *argv[] )
 				setImageCOLOR(img,0);
 
 				// Compute the Mandelbrot image
-				compute_image(img,xcenter-xscale/2,xcenter+xscale/2,ycenter-yscale/2,ycenter+yscale/2,max);
+				compute_image(img,xcenter-xscale/2,xcenter+xscale/2,ycenter-yscale/2,ycenter+yscale/2,max, n_threads);
 				
 				// Save the image in the stated file.
 				storeJpegImageFile(img, outfile);
@@ -188,30 +207,59 @@ Compute an entire Mandelbrot image, writing each point to the given bitmap.
 Scale the image to the range (xmin-xmax,ymin-ymax), limiting iterations to "max"
 */
 
-void compute_image(imgRawImage* img, double xmin, double xmax, double ymin, double ymax, int max )
+void compute_image(imgRawImage* img, double xmin, double xmax, double ymin, double ymax, int max, int n_threads)
 {
+	mandel_data data[n_threads];
+	
+	pthread_t threads[n_threads];
+	// Compute y start and ends for each thread
+	int y_start = 0;
+	int y_inc, y_end;
+	y_inc = y_end = img->height / n_threads;
+	for (int i = 0; i < n_threads; i++) {
+		
+		data[i].img = img;
+		data[i].max = max;
+		data[i].xmax = xmax;
+		data[i].ymax = ymax;
+		data[i].xmin = xmin;
+		data[i].ymin = ymin;
+		data[i].y_end = y_end;
+		data[i].y_start = y_start;
+		if (errno = pthread_create(&threads[i], NULL, &compute_section, (void*) &data[i]) != 0) {
+			perror("Failed to create thread");
+		}
+		printf("pthread_id: %ld\n", threads[i]);
+		y_start += y_inc;
+		y_end += y_inc;
+	}
+	int i;
+	for (i = 0; i < n_threads; i++) {
+		pthread_join(threads[i], NULL);
+	}
+	printf("i: %d\n", i);
+}
+
+void* compute_section(void* arg) {
 	int i,j;
-
-	int width = img->width;
-	int height = img->height;
-
+	mandel_data* data = (mandel_data*)arg;
 	// For every pixel in the image...
+	for(j=data->y_start;j<data->y_end;j++) {
 
-	for(j=0;j<height;j++) {
-
-		for(i=0;i<width;i++) {
+		for(i=0;i<data->img->width;i++) {
 
 			// Determine the point in x,y space for that pixel.
-			double x = xmin + i*(xmax-xmin)/width;
-			double y = ymin + j*(ymax-ymin)/height;
+			double x = data->xmin + i*(data->xmax-data->xmin)/data->img->width;
+			double y = data->ymin + j*(data->ymax-data->ymin)/data->img->height;
 
 			// Compute the iterations at that point.
-			int iters = iterations_at_point(x,y,max);
+			int iters = iterations_at_point(x,y,data->max);
 
 			// Set the pixel in the bitmap.
-			setPixelCOLOR(img,i,j,iteration_to_color(iters,max));
+			setPixelCOLOR(data->img,i,j,iteration_to_color(iters,data->max));
 		}
 	}
+	return NULL;
 }
 
 
