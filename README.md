@@ -38,5 +38,9 @@ Since my computer has 20 cores, the optimal number of processes is 20.
 After this point, the program reaches a steady state where adding more processes does not improve performance.
 This is because only 20 process can run in parallel at a time with 20 cores.
 
+After adding multithreading we can compare the performance certain combinations of processes.
+To demonstrate this I created a heat map of the times with processes on the y axis and threads on the x axis..
+![image](https://github.com/user-attachments/assets/3b283648-0a48-48f5-8c6e-b7054d60bdee)
+
 
 
