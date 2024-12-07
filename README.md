@@ -11,6 +11,7 @@ I used the getopt method to easily make commandline argument options to make the
 - -z \<zoom\>&emsp;&emsp;&emsp;&emsp;Zoom factor to scale down each image by (default=0.9)
 
 - -p \<processes\>&emsp;&emsp;Set number of processes. (default=1)
+- -t \<threads\>&emsp;&emsp;Set number of threads. (default=1)
 
 - -i \<images\>&nbsp;&nbsp;&emsp;&emsp;&emsp;Set the number of images for the video. (default=50)
 
